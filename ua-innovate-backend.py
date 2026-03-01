@@ -1,153 +1,109 @@
-"""
-UA Innovate 2026 - Southern Company Data Pipeline
-Processes Excel workbook into device lifecycle CSVs for dashboard consumption.
-
-Data Sources (per prompt):
-- NA (Network Automation): switches, routers, voice gateways
-- CatCtr (Catalyst Center) / PrimeAP / PrimeWLC: source of truth for APs and WLCs (override NA duplicates)
-- SOLID + SOLID-Loc: site info, geo (lat/long), affiliate (Call Group), county
-- ModelData: EoS, EoL, replacement device, costs
-- Decom: decommissioned sites (exceptions)
-
-Assumptions:
-- Only active/reachable devices
-- NA Device Type → Switch, Router, or Voice Gateway
-- Host name: first 2 chars = State, chars 3-5 = site code
-
-Usage:
-  py ua-innovate-backend.py [excel_path] [output_dir]
-  Default: UAInnovateDataset-SoCo.xlsx, data/outputs
-"""
-
-import argparse
-import os
 import pandas as pd
 from datetime import datetime
 
-def run_pipeline(excel_path: str, output_dir: str) -> None:
-    """Process Excel and write CSV outputs."""
-    xls = pd.ExcelFile(excel_path)
+# 1. Load Excel workbook
+file_name = "UAInnovateDataset-SoCo.xlsx"
+xls = pd.ExcelFile(file_name)
 
-    # Load sheets (handle missing sheets gracefully)
-    sheet_names = xls.sheet_names
-    solid = pd.read_excel(xls, sheet_name='SOLID') if 'SOLID' in sheet_names else pd.DataFrame()
-    solid_loc = pd.read_excel(xls, sheet_name='SOLID-Loc') if 'SOLID-Loc' in sheet_names else pd.DataFrame()
-    na = pd.read_excel(xls, sheet_name='NA') if 'NA' in sheet_names else pd.DataFrame()
-    decom = pd.read_excel(xls, sheet_name='Decom') if 'Decom' in sheet_names else pd.DataFrame()
-    modeldata = pd.read_excel(xls, sheet_name='ModelData') if 'ModelData' in sheet_names else pd.DataFrame()
-    prime_ap = pd.read_excel(xls, sheet_name='PrimeAP') if 'PrimeAP' in sheet_names else pd.DataFrame()
-    prime_wlc = pd.read_excel(xls, sheet_name='PrimeWLC') if 'PrimeWLC' in sheet_names else pd.DataFrame()
-    catctr = pd.read_excel(xls, sheet_name='CatCtr') if 'CatCtr' in sheet_names else pd.DataFrame()
+# Load sheets
+solid = pd.read_excel(xls, sheet_name='SOLID')
+solid_loc = pd.read_excel(xls, sheet_name='SOLID-Loc')
+na = pd.read_excel(xls, sheet_name='NA')
+decom = pd.read_excel(xls, sheet_name='Decom')
+modeldata = pd.read_excel(xls, sheet_name='ModelData')
+prime_ap = pd.read_excel(xls, sheet_name='PrimeAP')
+prime_wlc = pd.read_excel(xls, sheet_name='PrimeWLC')
+catctr = pd.read_excel(xls, sheet_name='CatCtr')
 
-    # ModelData columns for costs and replacement
-    model_cols = ['Model', 'EoS', 'EoL', 'In Scope?']
-    cost_cols = ['Repl Device', 'ReplaceNow', 'PrepareToReplace', 'Material Cost', 'Labor Cost', 'Device Cost']
-    for c in cost_cols:
-        if c in modeldata.columns:
-            model_cols.append(c)
-    modeldata_sub = modeldata[[c for c in model_cols if c in modeldata.columns]]
+# 2. Merge SOLID + SOLID-Loc → site info
+sites = solid.merge(
+    solid_loc[['Site Code', 'Latitude', 'Longitude', 'PhysicalAddressCounty', 'Call Group', 'Owner']],
+    on='Site Code',
+    how='left'
+)
 
-    # Ensure NA has required columns
-    if na.empty:
-        devices = pd.DataFrame()
-    else:
-        # 3. Filter NA → only active devices
-        active_na = na[na['Device Status'].astype(str).str.lower() == 'active'].copy()
+# 3. Filter NA → only active/reachable devices
+active_na = na[na['Device Status'].str.lower() == 'active'].copy()
 
-        # 4. Standardize Device Type (Switch, Router, Voice Gateway)
-        type_map = {
-            'Switch': 'Switch', 'L3Switch': 'Switch',
-            'Router': 'Router',
-            'Voice Gateway': 'Voice Gateway',
-        }
-        active_na['Device Type Standard'] = active_na['Device Type'].map(type_map).fillna(active_na['Device Type'])
+# 4. Standardize Device Type
+type_map = {
+    'Switch': 'Switch',
+    'Router': 'Router',
+    'Voice Gateway': 'Voice Gateway',
+}
+active_na['Device Type Standard'] = active_na['Device Type'].map(type_map).fillna(active_na['Device Type'])
 
-        # 5. CatCtr/Prime override NA for duplicates
-        na_hosts_to_remove = set()
-        if 'hostname' in catctr.columns:
-            na_hosts_to_remove.update(catctr['hostname'].dropna().astype(str).str.strip())
-        if 'name' in prime_ap.columns:
-            na_hosts_to_remove.update(prime_ap['name'].dropna().astype(str).str.strip())
-        if 'deviceName' in prime_wlc.columns:
-            na_hosts_to_remove.update(prime_wlc['deviceName'].dropna().astype(str).str.strip())
-        active_na = active_na[~active_na['Host Name'].astype(str).str.strip().isin(na_hosts_to_remove)]
+# 5. Override NA with CatCtr / PrimeAP / PrimeWLC for duplicates
+na_hosts_to_remove = set(catctr['hostname']).union(set(prime_ap['name'].fillna(''))).union(set(prime_wlc['deviceName'].fillna('')))
+active_na = active_na[~active_na['Host Name'].isin(na_hosts_to_remove)]
 
-        # Combine all sources (CatCtr/Prime override NA for APs/WLCs)
-        to_concat = [active_na]
-        if not catctr.empty and 'hostname' in catctr.columns:
-            to_concat.append(catctr.rename(columns={'hostname': 'Host Name'}))
-        if not prime_ap.empty and 'name' in prime_ap.columns:
-            to_concat.append(prime_ap.rename(columns={'name': 'Host Name'}))
-        if not prime_wlc.empty and 'deviceName' in prime_wlc.columns:
-            to_concat.append(prime_wlc.rename(columns={'deviceName': 'Host Name'}))
-        devices = pd.concat(to_concat, ignore_index=True, sort=False)
+# 6. Combine all sources
+devices = pd.concat([
+    active_na,
+    catctr.rename(columns={'hostname':'Host Name'}),
+    prime_ap.rename(columns={'name':'Host Name'}),
+    prime_wlc.rename(columns={'deviceName':'Host Name'})
+], ignore_index=True, sort=False)
 
-    if devices.empty:
-        # Write empty CSVs
-        os.makedirs(output_dir, exist_ok=True)
-        base_cols = ['Host Name', 'Device Model', 'EoS', 'EoL', 'State', 'Site Code Extracted', 'Exception_Flag', 'Exception_Reason', 'EoL_Date', 'Days_to_EoL']
-        empty_df = pd.DataFrame(columns=base_cols)
-        empty_df.to_csv(os.path.join(output_dir, "core_device_table.csv"), index=False)
-        for name in ["devices_approaching_eol.csv", "devices_past_eol.csv", "devices_exceptions.csv", "devices_unknown_lifecycle.csv"]:
-            empty_df.to_csv(os.path.join(output_dir, name), index=False)
-        return
+# 7. Extract Site Code from host name (for mapping)
+devices['Site Code Extracted'] = devices['Host Name'].str[2:5]
 
-    # 6. Extract State and Site Code from host name
-    devices['State'] = devices['Host Name'].astype(str).str[:2]
-    devices['Site Code Extracted'] = devices['Host Name'].astype(str).str[2:5]
+# 8. Merge with ModelData for lifecycle info
+devices = devices.merge(
+    modeldata[['Model','EoS','EoL','In Scope?']],
+    left_on='Device Model',
+    right_on='Model',
+    how='left'
+)
 
-    # 7. Merge with ModelData (lifecycle + costs + replacement)
-    devices = devices.merge(
-        modeldata_sub,
-        left_on='Device Model',
-        right_on='Model',
-        how='left',
-        suffixes=('', '_model')
-    )
-    if 'Model_model' in devices.columns:
-        devices = devices.drop(columns=['Model_model'], errors='ignore')
+# 9. Merge geographic/site info using extracted Site Code
+devices = devices.merge(
+    sites.rename(columns={'Site Code':'Site Code Extracted'}),
+    on='Site Code Extracted',
+    how='left'
+)
 
-    # 8. Exceptions (Decom sites)
-    devices['Exception_Flag'] = False
-    devices['Exception_Reason'] = None
-    if not decom.empty and 'Site Cd' in decom.columns:
-        decom_sites = set(decom['Site Cd'].dropna().astype(str).str.strip())
-        mask = devices['Site Code Extracted'].astype(str).str.strip().isin(decom_sites)
-        devices.loc[mask, 'Exception_Flag'] = True
-        devices.loc[mask, 'Exception_Reason'] = 'Decommissioned site'
+# 10. Fill missing columns with 'Unknown' for consistency
+for col in ['State','Owner','PhysicalAddressCounty','Latitude','Longitude']:
+    if col not in devices.columns:
+        devices[col] = 'Unknown'
+    devices[col] = devices[col].fillna('Unknown')
 
-    # 9. Days to EoL
-    today = pd.Timestamp.today()
-    devices['EoL_Date'] = pd.to_datetime(devices['EoL'], errors='coerce')
-    devices['Days_to_EoL'] = (devices['EoL_Date'] - today).dt.days
+# 11. Flag exceptions using Decom
+devices['Exception_Flag'] = False
+devices['Exception_Reason'] = None
+devices.loc[devices['Site Code Extracted'].isin(decom['Site Cd']), ['Exception_Flag','Exception_Reason']] = [True, 'Decommissioned site']
 
-    # 10. Lifecycle subsets
-    approaching_eol = devices[(devices['Days_to_EoL'].notna()) & (devices['Days_to_EoL'] >= 0) & (devices['Days_to_EoL'] <= 365)].copy()
-    past_eol = devices[(devices['Days_to_EoL'].notna()) & (devices['Days_to_EoL'] < 0)].copy()
-    exceptions_df = devices[devices['Exception_Flag'] == True].copy()
-    unknown_lifecycle = devices[devices['EoL'].isna()].copy()
+# 12. Calculate Days to EoL
+today = pd.Timestamp.today()
+devices['EoL_Date'] = pd.to_datetime(devices['EoL'], errors='coerce')
+devices['Days_to_EoL'] = (devices['EoL_Date'] - today).dt.days
 
-    # 11. Save
-    os.makedirs(output_dir, exist_ok=True)
-    devices.to_csv(os.path.join(output_dir, "core_device_table.csv"), index=False)
-    approaching_eol.to_csv(os.path.join(output_dir, "devices_approaching_eol.csv"), index=False)
-    past_eol.to_csv(os.path.join(output_dir, "devices_past_eol.csv"), index=False)
-    exceptions_df.to_csv(os.path.join(output_dir, "devices_exceptions.csv"), index=False)
-    unknown_lifecycle.to_csv(os.path.join(output_dir, "devices_unknown_lifecycle.csv"), index=False)
+# 13. Flag concern devices
+approaching_eol = devices[(devices['Days_to_EoL'] >= 0) & (devices['Days_to_EoL'] <= 365)]
+past_eol = devices[devices['Days_to_EoL'] < 0]
+exceptions = devices[devices['Exception_Flag'] == True]
+unknown_lifecycle = devices[devices['EoL'].isna()]
 
-    print(f"Processed {len(devices):,} devices. Output written to {output_dir}")
+# 14. Columns to include in print/output
+geo_columns = ['State','Owner','PhysicalAddressCounty','Latitude','Longitude']
 
+# 15. Print concern rows with geographic info
+print("\n=== Devices Approaching EoL (within 1 year) ===")
+print(approaching_eol[['Host Name','Device Model','EoS','EoL','Days_to_EoL'] + geo_columns])
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="UA Innovate SoCo - Process Excel to CSV")
-    parser.add_argument("excel_path", nargs="?", default="UAInnovateDataset-SoCo.xlsx",
-                        help="Path to UAInnovateDataset Excel file")
-    parser.add_argument("output_dir", nargs="?", default=os.path.join("data", "outputs"),
-                        help="Output directory for CSVs")
-    args = parser.parse_args()
+print("\n=== Devices Past EoL ===")
+print(past_eol[['Host Name','Device Model','EoS','EoL','Days_to_EoL'] + geo_columns])
 
-    if not os.path.exists(args.excel_path):
-        print(f"Error: Excel file not found: {args.excel_path}")
-        exit(1)
+print("\n=== Devices Flagged as Exceptions ===")
+print(exceptions[['Host Name','Device Model','Exception_Reason'] + geo_columns])
 
-    run_pipeline(args.excel_path, args.output_dir)
+print("\n=== Devices with Unknown Lifecycle ===")
+print(unknown_lifecycle[['Host Name','Device Model','EoS','EoL'] + geo_columns])
+
+# 16. Save full dataset and concern subsets
+devices.to_csv("core_device_table.csv", index=False)
+approaching_eol.to_csv("devices_approaching_eol.csv", index=False)
+past_eol.to_csv("devices_past_eol.csv", index=False)
+exceptions.to_csv("devices_exceptions.csv", index=False)
+unknown_lifecycle.to_csv("devices_unknown_lifecycle.csv", index=False)
