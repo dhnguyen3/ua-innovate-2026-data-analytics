@@ -29,10 +29,17 @@ st.caption(
 )
 
 # -----------------------------
-# Defaults (match folder structure above)
+# Defaults (resolved relative to app directory)
 # -----------------------------
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_OUTPUT_DIR = os.path.join("data", "outputs")
 DEFAULT_EXCEL_PATH = os.path.join("data", "raw", "UAInnovateDataset-SoCo.xlsx")
+
+def _resolve_path(path: str, base: str = _APP_DIR) -> str:
+    """Resolve path relative to app directory if not absolute."""
+    if not path:
+        return path
+    return path if os.path.isabs(path) else os.path.normpath(os.path.join(base, path))
 
 CSV_FILES = {
     "core": "core_device_table.csv",
@@ -136,8 +143,9 @@ def build_radius_clusters(sites_df: pd.DataFrame, radius_mi: float):
 # -----------------------------
 @st.cache_data
 def load_csv_outputs(output_dir: str):
+    resolved_dir = _resolve_path(output_dir)
     def read_one(name: str):
-        path = os.path.join(output_dir, CSV_FILES[name])
+        path = os.path.join(resolved_dir, CSV_FILES[name])
         if not file_exists(path):
             return None, path
         return pd.read_csv(path, low_memory=False), path
@@ -271,7 +279,7 @@ core = coerce_numeric(core, ["Days_to_EoL", "Material Cost", "Labor Cost", "Devi
 
 # Optional: enrich with geo from Excel SOLID-Loc
 if use_geo_enrichment:
-    geo = load_solid_loc_geo(excel_path)
+    geo = load_solid_loc_geo(_resolve_path(excel_path))
     if geo is None:
         st.warning("Geo enrichment enabled, but SOLID-Loc could not be loaded. Geo tab will be limited.")
     else:
