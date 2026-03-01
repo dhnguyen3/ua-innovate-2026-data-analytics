@@ -17,16 +17,117 @@ import streamlit as st
 import plotly.express as px
 
 # -----------------------------
+# Chart styling helper
+# -----------------------------
+CHART_THEME = {
+    "template": "plotly_white",
+    "font": {"family": "Inter, system-ui, sans-serif", "size": 13},
+    "margin": {"t": 40, "r": 20, "b": 50, "l": 60},
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(248,249,250,0.8)",
+    "xaxis": {"showgrid": True, "gridcolor": "rgba(0,0,0,0.08)", "zeroline": False},
+    "yaxis": {"showgrid": True, "gridcolor": "rgba(0,0,0,0.08)", "zeroline": False},
+    "showlegend": True,
+    "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+    "height": 380,
+}
+def _style_chart(fig, height=None):
+    h = height or CHART_THEME["height"]
+    fig.update_layout(template=CHART_THEME["template"], font=CHART_THEME["font"], margin=CHART_THEME["margin"],
+                     paper_bgcolor=CHART_THEME["paper_bgcolor"], plot_bgcolor=CHART_THEME["plot_bgcolor"],
+                     xaxis=CHART_THEME["xaxis"], yaxis=CHART_THEME["yaxis"], height=h)
+    return fig
+
+# -----------------------------
 # App Config
 # -----------------------------
-st.set_page_config(page_title="SoCo Lifecycle Dashboard", layout="wide")
+st.set_page_config(page_title="SoCo Lifecycle Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-st.title("Southern Company — Lifecycle, Risk, and Bundling Dashboard")
-st.caption(
-    "Evaluate network equipment costs and identify improvement opportunities. "
-    "Metrics by state, affiliate, county, model, device type. "
-    "Load from Excel or pre-processed CSVs."
-)
+# Professional, web-page-style layout and styling
+st.markdown("""
+<style>
+    /* Main layout — clean, readable max-width feel */
+    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; max-width: 1400px; font-size: 1rem; }
+    
+    /* Header area */
+    h1 { 
+        font-size: 1.75rem !important; 
+        font-weight: 700 !important; 
+        color: #1a1a2e !important;
+        margin-bottom: 0.25rem !important;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #e8e8ed;
+    }
+    .stCaptionContainer { color: #5a5a6e; font-size: 0.9rem; margin-bottom: 1rem; }
+    
+    /* Sidebar — organized, scannable */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #f8f9fc 0%, #f0f2f7 100%);
+    }
+    [data-testid="stSidebar"] .stMarkdown { font-weight: 600; color: #2d3748; font-size: 0.95rem !important; }
+    [data-testid="stSidebar"] label { font-size: 0.95rem !important; }
+    [data-testid="stSidebar"] .streamlit-expanderHeader { font-weight: 500; }
+    
+    /* Section headers in content */
+    h2, h3 { color: #1a1a2e !important; font-weight: 600 !important; }
+    h2 { font-size: 1.25rem !important; margin-top: 1.5rem !important; }
+    h3 { font-size: 1.1rem !important; }
+    h4 { color: #2d3748 !important; font-weight: 600 !important; font-size: 1.05rem !important; margin-top: 1rem !important; }
+    
+    /* Proportional text visibility */
+    .stMarkdown, .stMarkdown p { font-size: 1rem !important; line-height: 1.5 !important; }
+    .stCaptionContainer, .stCaptionContainer p { font-size: 0.95rem !important; color: #5a5a6e !important; }
+    .stDataFrame { font-size: 0.95rem !important; }
+    
+    /* Metrics / KPI cards */
+    [data-testid="stMetric"] {
+        background: #fff;
+        padding: 1rem 1.25rem;
+        border-radius: 8px;
+        border: 1px solid #e8e8ed;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    [data-testid="stMetricValue"] { font-weight: 700 !important; color: #1a1a2e !important; font-size: 1.35rem !important; }
+    [data-testid="stMetricLabel"] { font-size: 0.9rem !important; color: #5a5a6e !important; }
+    
+    /* Charts */
+    .stPlotlyChart { 
+        border-radius: 8px; 
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        border: 1px solid #e8e8ed;
+    }
+    
+    /* Tabs — web-style navigation */
+    .stTabs [data-baseweb="tab-list"] { gap: 0; border-bottom: 1px solid #e8e8ed; }
+    .stTabs [data-baseweb="tab"] { 
+        padding: 0.75rem 1.25rem; 
+        font-weight: 500;
+        font-size: 1rem !important;
+        border-radius: 6px 6px 0 0;
+    }
+    .stTabs [aria-selected="true"] { background: #f0f4ff; color: #2563eb; }
+    
+    /* Dividers and spacing */
+    hr { margin: 1.5rem 0 !important; border-color: #e8e8ed !important; }
+    
+    /* DataFrames */
+    .stDataFrame { border-radius: 8px; overflow: hidden; border: 1px solid #e8e8ed; }
+    
+    /* Buttons */
+    .stButton > button { 
+        border-radius: 6px; 
+        font-weight: 500;
+        padding: 0.4rem 1rem;
+    }
+    
+    /* Status / info boxes */
+    .stAlert { border-radius: 6px; }
+</style>
+""", unsafe_allow_html=True)
+
+# Header
+st.title("Southern Company — Lifecycle Dashboard")
+st.caption("Evaluate network equipment costs, identify improvement opportunities, and plan lifecycle bundling. Use the sidebar to load data and filter by state, affiliate, or device type.")
 
 # -----------------------------
 # Defaults (resolved relative to app directory)
@@ -41,10 +142,25 @@ def _resolve_path(path: str, base: str = _APP_DIR) -> str:
         return path
     return path if os.path.isabs(path) else os.path.normpath(os.path.join(base, path))
 
+def _resolve_excel_path(path: str) -> str:
+    """Resolve Excel path, trying .xlsx if the given path doesn't exist but looks incomplete."""
+    resolved = _resolve_path(path.strip())
+    if file_exists(resolved):
+        return resolved
+    # If path looks incomplete (ends with "." or missing extension), try .xlsx
+    if resolved and not resolved.lower().endswith((".xlsx", ".xls")):
+        base_path = resolved.rstrip(".")
+        alt = (base_path + ".xlsx") if not base_path.lower().endswith(".xlsx") else base_path
+        if file_exists(alt):
+            return alt
+    return resolved
+
 CSV_FILES = {
     "core": "core_device_table.csv",
     "approaching": "devices_approaching_eol.csv",
     "past": "devices_past_eol.csv",
+    "approaching_eos": "devices_approaching_eos.csv",
+    "past_eos": "devices_past_eos.csv",
     "unknown": "devices_unknown_lifecycle.csv",
     "exceptions": "devices_exceptions.csv",
 }
@@ -74,22 +190,33 @@ def safe_unique_sorted(series: pd.Series):
     vals = vals[vals != ""].unique().tolist()
     return sorted(vals)
 
-# Haversine distance (miles)
+# Haversine distance (miles) — WGS84 mean radius, vectorized
+_EARTH_R_MI = 3958.8  # miles (WGS84 authalic mean)
+
 def haversine_miles(lat1, lon1, lat2, lon2):
-    R = 3958.7613  # miles
-    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    lat1, lon1, lat2, lon2 = map(np.radians, [np.asarray(lat1), np.asarray(lon1), np.asarray(lat2), np.asarray(lon2)])
     dlat = lat2 - lat1
     dlon = lon2 - lon1
     a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * (np.sin(dlon / 2.0) ** 2)
-    return 2 * R * np.arcsin(np.minimum(1, np.sqrt(a)))
+    return 2 * _EARTH_R_MI * np.arcsin(np.minimum(1.0, np.sqrt(a)))
 
 def build_radius_clusters(sites_df: pd.DataFrame, radius_mi: float):
     """
-    Naive connected-component clustering using a radius threshold.
-    Good enough for hackathon scale.
+    Connected-component clustering: sites within radius_mi are grouped.
+    Deduplicates by site_code (mean lat/lon) so each physical site counts once.
     sites_df must have: site_code, latitude, longitude plus any metrics.
     """
-    sites_df = sites_df.dropna(subset=["latitude", "longitude"]).reset_index(drop=True)
+    sites_df = sites_df.dropna(subset=["latitude", "longitude"]).copy()
+    # One row per site_code: mean lat/lon, sum counts (avoids duplicate coords skewing clusters)
+    agg_dict = {"latitude": "mean", "longitude": "mean"}
+    for c in ["device_count", "expired_count", "approaching_count", "unknown_count", "exception_count"]:
+        if c in sites_df.columns:
+            agg_dict[c] = "sum"
+    for c in ["State", "affiliate", "county"]:
+        if c in sites_df.columns:
+            agg_dict[c] = "first"
+    sites_df = sites_df.groupby("site_code", as_index=False).agg(agg_dict)
+    sites_df = sites_df.reset_index(drop=True)
     n = len(sites_df)
     if n == 0:
         return sites_df.assign(cluster_id=pd.Series(dtype=int)), pd.DataFrame()
@@ -122,6 +249,19 @@ def build_radius_clusters(sites_df: pd.DataFrame, radius_mi: float):
     out = sites_df.copy()
     out["cluster_id"] = cluster_ids
 
+    # Max distance within each cluster (for verification)
+    def _max_dist_in_cluster(cluster_rows):
+        lat = cluster_rows["latitude"].values
+        lon = cluster_rows["longitude"].values
+        n = len(lat)
+        if n < 2:
+            return 0.0
+        mx = 0.0
+        for i in range(n):
+            d = haversine_miles(lat[i], lon[i], lat, lon)
+            mx = max(mx, float(np.nanmax(d)))
+        return round(mx, 2)
+
     summary = (
         out.groupby("cluster_id")
         .agg(
@@ -133,8 +273,11 @@ def build_radius_clusters(sites_df: pd.DataFrame, radius_mi: float):
             exception_count=("exception_count", "sum"),
         )
         .reset_index()
-        .sort_values(["site_count", "device_count"], ascending=False)
     )
+    summary["max_dist_mi"] = summary["cluster_id"].apply(
+        lambda cid: _max_dist_in_cluster(out[out["cluster_id"] == cid])
+    )
+    summary = summary.sort_values(["site_count", "device_count"], ascending=False).reset_index(drop=True)
 
     return out, summary
 
@@ -153,6 +296,8 @@ def load_csv_outputs(output_dir: str):
     core, core_path = read_one("core")
     approaching, approaching_path = read_one("approaching")
     past, past_path = read_one("past")
+    approaching_eos, approaching_eos_path = read_one("approaching_eos")
+    past_eos, past_eos_path = read_one("past_eos")
     unknown, unknown_path = read_one("unknown")
     exceptions, exceptions_path = read_one("exceptions")
 
@@ -160,16 +305,20 @@ def load_csv_outputs(output_dir: str):
         "core": core_path,
         "approaching": approaching_path,
         "past": past_path,
+        "approaching_eos": approaching_eos_path,
+        "past_eos": past_eos_path,
         "unknown": unknown_path,
         "exceptions": exceptions_path,
     }
 
-    return core, approaching, past, unknown, exceptions, paths
+    return core, approaching, past, approaching_eos, past_eos, unknown, exceptions, paths
 
 @st.cache_data
 def load_solid_loc_geo(excel_path: str):
-    if not file_exists(excel_path):
+    resolved = _resolve_excel_path(excel_path)
+    if not file_exists(resolved):
         return None
+    excel_path = resolved
     # Load only SOLID-Loc for geo enrichment
     solid_loc = pd.read_excel(excel_path, sheet_name="SOLID-Loc")
     # Standardize to names we’ll use
@@ -196,59 +345,49 @@ def validate_required_columns(df: pd.DataFrame, required: list[str]):
 # Sidebar Config
 # -----------------------------
 with st.sidebar:
-    st.header("Data Settings")
+    st.markdown("### Settings")
 
-    output_dir = st.text_input("CSV Output Directory", DEFAULT_OUTPUT_DIR)
-    excel_path = st.text_input("Excel Path (for geo & pipeline)", DEFAULT_EXCEL_PATH)
-
-    # Run pipeline from Excel (process raw data → CSVs)
-    if st.button("Run Pipeline from Excel"):
-        backend_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ua-innovate-backend.py")
-        base_dir = os.path.dirname(backend_script)
-        out_abs = output_dir if os.path.isabs(output_dir) else os.path.normpath(os.path.join(base_dir, output_dir))
-        excel_abs = excel_path if os.path.isabs(excel_path) else os.path.normpath(os.path.join(base_dir, excel_path))
-        if file_exists(excel_abs) and os.path.exists(backend_script):
-            with st.spinner("Processing Excel..."):
-                result = subprocess.run(
-                    [sys.executable, backend_script, excel_abs, out_abs],
-                    capture_output=True,
-                    text=True,
-                    cwd=base_dir,
-                )
-            if result.returncode == 0:
-                st.success(result.stdout or "Pipeline complete. Click Reload Data.")
-                st.cache_data.clear()
+    with st.expander("Data & Pipeline", expanded=True):
+        output_dir = st.text_input("CSV Output Directory", DEFAULT_OUTPUT_DIR, help="Folder containing device CSVs")
+        excel_path = st.text_input("Excel Path", DEFAULT_EXCEL_PATH, help="For geo enrichment & pipeline")
+        if st.button("Run Pipeline from Excel", use_container_width=True):
+            backend_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ua-innovate-backend.py")
+            base_dir = os.path.dirname(backend_script)
+            out_abs = output_dir if os.path.isabs(output_dir) else os.path.normpath(os.path.join(base_dir, output_dir))
+            excel_abs = _resolve_excel_path(excel_path)
+            if file_exists(excel_abs) and os.path.exists(backend_script):
+                with st.spinner("Processing Excel..."):
+                    result = subprocess.run(
+                        [sys.executable, backend_script, excel_abs, out_abs],
+                        capture_output=True,
+                        text=True,
+                        cwd=base_dir,
+                    )
+                if result.returncode == 0:
+                    st.success(result.stdout or "Pipeline complete. Click Reload Data.")
+                    st.cache_data.clear()
+                else:
+                    st.error(result.stderr or result.stdout or "Pipeline failed.")
             else:
-                st.error(result.stderr or result.stdout or "Pipeline failed.")
-        else:
-            st.warning("Excel path not found. Use full path, e.g. C:\\Users\\...\\UAInnovateDataset-SoCo.xlsx")
+                st.warning("Excel path not found.")
+        use_geo_enrichment = st.toggle("Geo Enrichment", value=True, help="Load lat/long & affiliate from Excel")
+        radius_mi = st.select_slider("Bundling Radius (mi)", options=[1, 5, 10, 25, 50], value=5)
+        refresh = st.button("Reload Data", use_container_width=True, type="primary")
 
-    use_geo_enrichment = st.toggle("Enable Geo Enrichment (SOLID-Loc)", value=True)
-    radius_mi = st.select_slider("Bundling Radius (miles)", options=[1, 5, 10], value=5)
+    if refresh:
+        st.cache_data.clear()
 
-    refresh = st.button("Reload Data")
+core, approaching, past, approaching_eos, past_eos, unknown, exceptions, paths = load_csv_outputs(output_dir)
 
-if refresh:
-    st.cache_data.clear()
-
-core, approaching, past, unknown, exceptions, paths = load_csv_outputs(output_dir)
-
-# -----------------------------
-# Show load status
-# -----------------------------
-st.subheader("Load Status")
-colA, colB = st.columns([2, 3])
-
-with colA:
-    st.write("**Expected CSV files:**")
-    for k, p in paths.items():
-        st.write(f"- {k}: `{p}`")
-
-with colB:
-    if core is None:
-        st.error("core_device_table.csv not found. Check your output directory path.")
-        st.stop()
-    st.success(f"Loaded core table: {len(core):,} rows")
+# Load status in sidebar
+with st.sidebar:
+    with st.expander("Data Status", expanded=core is None):
+        if core is None:
+            st.error("Core CSV not found. Check output directory.")
+            st.stop()
+        st.success(f"**{len(core):,}** devices loaded")
+        for k, p in paths.items():
+            st.caption(f"{k}: `{p}`")
 
 # -----------------------------
 # Normalize / ensure columns exist
@@ -265,6 +404,9 @@ core = ensure_cols(core, {
     "Days_to_EoL": np.nan,
     "EoL_Date": "",
     "EoL": "",
+    "Days_to_EoS": np.nan,
+    "EoS_Date": "",
+    "EoS": "",
     "Exception_Flag": False,
     "Exception_Reason": "",
     "Repl Device": "",
@@ -275,18 +417,30 @@ core = ensure_cols(core, {
     "Device Cost": np.nan,
 })
 
-core = coerce_numeric(core, ["Days_to_EoL", "Material Cost", "Labor Cost", "Device Cost"])
+if "EoS" in core.columns and ("Days_to_EoS" not in core.columns or core["Days_to_EoS"].isna().all()):
+    core["EoS_Date"] = pd.to_datetime(core.get("EoS"), errors="coerce")
+    core["Days_to_EoS"] = (core["EoS_Date"] - pd.Timestamp.today()).dt.days
+core = coerce_numeric(core, ["Days_to_EoL", "Days_to_EoS", "Material Cost", "Labor Cost", "Device Cost"])
 
-# Optional: enrich with geo from Excel SOLID-Loc
+# Optional: enrich with geo from Excel SOLID-Loc (toggle has clear effect: OFF = no geo data)
 if use_geo_enrichment:
-    geo = load_solid_loc_geo(_resolve_path(excel_path))
+    geo = load_solid_loc_geo(excel_path)
     if geo is None:
         st.warning("Geo enrichment enabled, but SOLID-Loc could not be loaded. Geo tab will be limited.")
     else:
+        # Drop existing geo cols before merge to avoid _x/_y suffixes; geo becomes source of truth
+        core = core.drop(columns=["latitude", "longitude", "county", "affiliate", "site_name"], errors="ignore")
         core = core.merge(geo, on="Site Code Extracted", how="left")
         core = ensure_cols(core, {"latitude": np.nan, "longitude": np.nan, "county": "Unknown", "affiliate": "Unknown", "site_name": ""})
 else:
+    # Geo OFF: overwrite with defaults so toggle has visible effect (don't use CSV's baked-in geo)
+    core = core.drop(columns=["latitude", "longitude", "county", "affiliate", "site_name"], errors="ignore")
     core = ensure_cols(core, {"latitude": np.nan, "longitude": np.nan, "county": "Unknown", "affiliate": "Unknown", "site_name": ""})
+
+# Fill NaN in affiliate/county so charts always have displayable values (including "Unknown")
+for col in ["affiliate", "county"]:
+    if col in core.columns:
+        core[col] = core[col].fillna("Unknown").astype(str).replace("nan", "Unknown")
 
 # Build summary counts by site using the pre-filtered CSVs (if present)
 def make_site_counts(df_subset: pd.DataFrame, label: str):
@@ -324,23 +478,22 @@ core = core.rename(columns={
 site_counts = site_counts.rename(columns={"Site Code Extracted": "site_code"})
 
 # -----------------------------
-# Sidebar Filters (state, affiliate, county, device type per prompt)
+# Sidebar Filters
 # -----------------------------
 with st.sidebar:
-    st.header("Filters")
+    with st.expander("Filter View", expanded=True):
+        state_opts = safe_unique_sorted(core["State"]) if "State" in core.columns else []
+        devtype_opts = safe_unique_sorted(core["device_type"])
+        status_opts = safe_unique_sorted(core["device_status"])
+        affiliate_opts = safe_unique_sorted(core["affiliate"]) if "affiliate" in core.columns else []
+        county_opts = safe_unique_sorted(core["county"]) if "county" in core.columns else []
 
-    state_opts = safe_unique_sorted(core["State"]) if "State" in core.columns else []
-    devtype_opts = safe_unique_sorted(core["device_type"])
-    status_opts = safe_unique_sorted(core["device_status"])
-    affiliate_opts = safe_unique_sorted(core["affiliate"]) if "affiliate" in core.columns else []
-    county_opts = safe_unique_sorted(core["county"]) if "county" in core.columns else []
-
-    sel_states = st.multiselect("State", state_opts, default=state_opts)
-    sel_types = st.multiselect("Device Type", devtype_opts, default=devtype_opts)
-    sel_status = st.multiselect("Device Status", status_opts, default=status_opts)
-    sel_affiliate = st.multiselect("Affiliate (Call Group)", affiliate_opts, default=affiliate_opts) if affiliate_opts else None
-    sel_county = st.multiselect("County", county_opts, default=county_opts) if county_opts else None
-    show_only_active = st.toggle("Only Active devices", value=True)
+        sel_states = st.multiselect("State", state_opts, default=state_opts)
+        sel_types = st.multiselect("Device Type", devtype_opts, default=devtype_opts)
+        sel_status = st.multiselect("Device Status", status_opts, default=status_opts)
+        sel_affiliate = st.multiselect("Affiliate", affiliate_opts, default=affiliate_opts) if affiliate_opts else None
+        sel_county = st.multiselect("County", county_opts, default=county_opts) if county_opts else None
+        show_only_active = st.toggle("Only Active devices", value=True)
 
 # Apply filters
 filtered = core.copy()
@@ -372,71 +525,100 @@ def _filter_by_hostnames(df: pd.DataFrame | None, hostnames: set) -> int:
 # -----------------------------
 tab_overview, tab_lifecycle, tab_cost, tab_geo, tab_ex, tab_docs = st.tabs([
     "Overview",
-    "Lifecycle (Approaching / Past / Unknown)",
+    "Lifecycle",
     "Cost & Risk",
     "Geo Bundling",
     "Exceptions",
-    "Data Pipeline",
+    "Pipeline",
 ])
 
 # -----------------------------
 # OVERVIEW TAB
 # -----------------------------
 with tab_overview:
-    st.subheader("Executive Overview")
+    st.markdown("### Executive Summary")
+    st.caption("Key metrics for your filtered device set. **In Scope** excludes Decom exceptions. Use the sidebar to narrow by state, affiliate, or device type.")
 
-    # KPI cards (all respect current filters)
+    # KPI cards — exclude exceptions from "in scope" totals (governance)
+    in_scope = filtered[~filtered.get("Exception_Flag", pd.Series(dtype=bool)).fillna(False)] if "Exception_Flag" in filtered.columns else filtered
+    exc_in_filtered = filtered[filtered.get("Exception_Flag", pd.Series(dtype=bool)).fillna(False)] if "Exception_Flag" in filtered.columns else filtered.iloc[0:0]
     total_devices = len(filtered)
+    in_scope_count = len(in_scope)
+    exc_count = len(exc_in_filtered)
     total_sites = filtered["site_code"].nunique()
     filtered_hostnames = set(filtered["hostname"].dropna().astype(str).str.strip())
+    in_scope_hostnames = set(in_scope["hostname"].dropna().astype(str).str.strip())
 
-    approaching_count = _filter_by_hostnames(approaching, filtered_hostnames)
-    past_count = _filter_by_hostnames(past, filtered_hostnames)
-    unknown_count = _filter_by_hostnames(unknown, filtered_hostnames)
-    exc_count = _filter_by_hostnames(exceptions, filtered_hostnames)
+    approaching_count = _filter_by_hostnames(approaching, in_scope_hostnames)
+    past_count = _filter_by_hostnames(past, in_scope_hostnames)
+    approaching_eos_count = _filter_by_hostnames(approaching_eos, in_scope_hostnames)
+    past_eos_count = _filter_by_hostnames(past_eos, in_scope_hostnames)
+    unknown_count = _filter_by_hostnames(unknown, in_scope_hostnames)
+    exc_file_count = _filter_by_hostnames(exceptions, filtered_hostnames)
+    days_eos = pd.to_numeric(in_scope.get("Days_to_EoS", np.nan), errors="coerce")
+    # Fallback EoS counts from core when backend CSVs don't exist
+    if (approaching_eos is None or approaching_eos.empty) and days_eos.notna().any():
+        approaching_eos_count = int(((days_eos >= 0) & (days_eos <= 365)).sum())
+    if (past_eos is None or past_eos.empty) and days_eos.notna().any():
+        past_eos_count = int((days_eos < 0).sum())
 
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Devices (filtered)", f"{total_devices:,}")
-    k2.metric("Sites (filtered)", f"{total_sites:,}")
+    k1, k2, k3, k4, k5, k6, k7, k8 = st.columns(8)
+    k1.metric("Devices (In Scope)", f"{in_scope_count:,}", help="Excludes Decom/exceptions")
+    k2.metric("Sites", f"{total_sites:,}")
     k3.metric("Approaching EoL", f"{approaching_count:,}")
     k4.metric("Past EoL", f"{past_count:,}")
-    k5.metric("Unknown Lifecycle", f"{unknown_count:,}")
-    k6.metric("Exceptions", f"{exc_count:,}")
+    k5.metric("Approaching EoS", f"{approaching_eos_count:,}", help="Support ends within 1 yr")
+    k6.metric("Past EoS", f"{past_eos_count:,}", help="Support ended, no software updates")
+    k7.metric("Unknown Lifecycle", f"{unknown_count:,}")
+    k8.metric("Exceptions (Decom)", f"{exc_count:,}", help="Excluded from refresh scope")
 
     st.divider()
-
+    st.markdown("### Device Distribution")
     st.markdown("#### Metrics by State, Affiliate, County, Model, Device Type")
     c1, c2 = st.columns(2)
     with c1:
         if "State" in filtered.columns:
             by_state = filtered.groupby("State").size().reset_index(name="count").sort_values("count", ascending=False)
-            st.plotly_chart(px.bar(by_state, x="State", y="count", title="Devices by State"), use_container_width=True)
+            st.plotly_chart(_style_chart(px.bar(by_state, x="State", y="count", title="Devices by State")), use_container_width=True)
         else:
             st.info("No State column found.")
     with c2:
         by_type = filtered.groupby("device_type").size().reset_index(name="count").sort_values("count", ascending=False)
-        st.plotly_chart(px.bar(by_type, x="device_type", y="count", title="Devices by Device Type"), use_container_width=True)
+        st.plotly_chart(_style_chart(px.bar(by_type, x="device_type", y="count", title="Devices by Device Type")), use_container_width=True)
 
     c3, c4 = st.columns(2)
     with c3:
-        if "affiliate" in filtered.columns and filtered["affiliate"].notna().any():
+        if "affiliate" in filtered.columns:
             by_aff = filtered.groupby("affiliate").size().reset_index(name="count").sort_values("count", ascending=False).head(15)
-            st.plotly_chart(px.bar(by_aff, x="affiliate", y="count", title="Devices by Affiliate (Call Group)"), use_container_width=True)
+            if not by_aff.empty:
+                st.plotly_chart(
+                    _style_chart(px.bar(by_aff, x="affiliate", y="count", title="Devices by Affiliate (Call Group)",
+                           labels={"affiliate": "Affiliate (Call Group)", "count": "Count"})),
+                    use_container_width=True
+                )
+            else:
+                st.info("No affiliate data to display.")
         else:
             st.info("Affiliate data requires geo enrichment.")
     with c4:
         if "county" in filtered.columns and filtered["county"].notna().any() and (filtered["county"] != "Unknown").any():
             by_county = filtered[filtered["county"] != "Unknown"].groupby("county").size().reset_index(name="count").sort_values("count", ascending=False).head(15)
             if not by_county.empty:
-                st.plotly_chart(px.bar(by_county, x="county", y="count", title="Devices by County"), use_container_width=True)
+                st.plotly_chart(_style_chart(px.bar(by_county, x="county", y="count", title="Devices by County")), use_container_width=True)
             else:
                 st.info("County data requires geo enrichment.")
         else:
             st.info("County data requires geo enrichment.")
 
-    st.divider()
+    if "model" in filtered.columns and filtered["model"].notna().any():
+        by_model = filtered.groupby("model").size().reset_index(name="count").sort_values("count", ascending=False).head(20)
+        st.plotly_chart(_style_chart(px.bar(by_model, x="model", y="count", title="Devices by Model")), use_container_width=True)
+    else:
+        st.info("Model data not available.")
 
-    st.markdown("#### Top 25 Priority Devices (Past EoL first, then smallest Days_to_EoL)")
+    st.divider()
+    st.markdown("### Priority Devices")
+    st.markdown("#### Top 25 (Past EoL first, then by Days to EoL)")
     tmp = filtered.copy()
     tmp["Days_to_EoL"] = pd.to_numeric(tmp.get("Days_to_EoL", np.nan), errors="coerce")
 
@@ -463,7 +645,7 @@ with tab_overview:
     show_cols = [
         "State", "affiliate", "county", "site_code",
         "hostname", "device_type", "model", "Repl Device",
-        "EoL_Date", "Days_to_EoL",
+        "EoS", "EoS_Date", "Days_to_EoS", "EoL", "EoL_Date", "Days_to_EoL",
         "Exception_Flag", "Exception_Reason"
     ]
     show_cols = [c for c in show_cols if c in tmp.columns]
@@ -480,11 +662,12 @@ with tab_overview:
 # LIFECYCLE TAB
 # -----------------------------
 with tab_lifecycle:
-    st.subheader("Lifecycle Drilldown")
+    st.markdown("### Lifecycle Drilldown")
+    st.caption("Explore devices by EoL (End of Life) and EoS (End of Support) status. EoS = when software updates end; EoL = when hardware is fully end-of-life.")
 
     dataset_choice = st.radio(
         "Choose view",
-        ["Approaching EoL", "Past EoL", "Unknown Lifecycle"],
+        ["Approaching EoL", "Past EoL", "Approaching EoS", "Past EoS", "Unknown Lifecycle"],
         horizontal=True
     )
 
@@ -494,6 +677,18 @@ with tab_lifecycle:
     elif dataset_choice == "Past EoL":
         view = past if past is not None else pd.DataFrame()
         title = "Devices Past EoL"
+    elif dataset_choice == "Approaching EoS":
+        view = approaching_eos if approaching_eos is not None and not approaching_eos.empty else pd.DataFrame()
+        if view.empty and "Days_to_EoS" in filtered.columns:
+            days_eos = pd.to_numeric(filtered.get("Days_to_EoS", np.nan), errors="coerce")
+            view = filtered[(days_eos.notna()) & (days_eos >= 0) & (days_eos <= 365)].copy()
+        title = "Devices Approaching EoS (support ends within 1 yr)"
+    elif dataset_choice == "Past EoS":
+        view = past_eos if past_eos is not None and not past_eos.empty else pd.DataFrame()
+        if view.empty and "Days_to_EoS" in filtered.columns:
+            days_eos = pd.to_numeric(filtered.get("Days_to_EoS", np.nan), errors="coerce")
+            view = filtered[(days_eos.notna()) & (days_eos < 0)].copy()
+        title = "Devices Past EoS (support ended — no software updates)"
     else:
         view = unknown if unknown is not None else pd.DataFrame()
         title = "Devices with Unknown Lifecycle"
@@ -513,20 +708,20 @@ with tab_lifecycle:
             "Device Model": "model",
             "Site Code Extracted": "site_code",
         })
-        view2 = coerce_numeric(view2, ["Days_to_EoL"])
+        view2 = coerce_numeric(view2, ["Days_to_EoL", "Days_to_EoS"])
 
         # Quick breakdown charts
         c1, c2 = st.columns(2)
         with c1:
             if "State" in view2.columns:
                 by_state = view2.groupby("State").size().reset_index(name="count").sort_values("count", ascending=False)
-                st.plotly_chart(px.bar(by_state.head(25), x="State", y="count"), use_container_width=True)
+                st.plotly_chart(_style_chart(px.bar(by_state.head(25), x="State", y="count", title="Devices by State")), use_container_width=True)
             else:
                 st.info("No State column for this dataset.")
         with c2:
             if "device_type" in view2.columns:
                 by_type = view2.groupby("device_type").size().reset_index(name="count").sort_values("count", ascending=False)
-                st.plotly_chart(px.bar(by_type, x="device_type", y="count"), use_container_width=True)
+                st.plotly_chart(_style_chart(px.bar(by_type, x="device_type", y="count", title="Devices by Device Type")), use_container_width=True)
             else:
                 st.info("No Device Type column for this dataset.")
 
@@ -535,7 +730,8 @@ with tab_lifecycle:
         # Table + download
         cols = [
             "State", "site_code", "hostname", "device_type", "model",
-            "EoL_Date", "Days_to_EoL", "Exception_Flag", "Exception_Reason"
+            "EoS", "EoS_Date", "Days_to_EoS", "EoL", "EoL_Date", "Days_to_EoL",
+            "Exception_Flag", "Exception_Reason"
         ]
         cols = [c for c in cols if c in view2.columns]
         st.dataframe(view2[cols].sort_values(["State", "site_code", "hostname"]).reset_index(drop=True),
@@ -552,7 +748,8 @@ with tab_lifecycle:
 # COST & RISK TAB
 # -----------------------------
 with tab_cost:
-    st.subheader("Cost & Risk — Calculate, Visualize, Prioritize")
+    st.markdown("### Cost & Risk Analysis")
+    st.caption("Prioritize refresh and investment based on risk tier and estimated replacement costs.")
 
     # Build risk dataframe (always - risk is calculated from lifecycle)
     risk_df = filtered.copy()
@@ -609,14 +806,15 @@ with tab_cost:
     # --- Cost KPIs (when available) ---
     if has_costs:
         st.markdown("#### Cost Summary")
-        st.caption("Replacement cost = Material + Labor + Device Cost (labor included).")
+        st.caption("Replacement cost = Material + Labor + Device Cost. Past EoL and At-Risk totals exclude Decom exceptions.")
         cost_critical = critical["total_cost"].sum()
         cost_at_risk = at_risk["total_cost"].sum()
-        cost_total = risk_df["total_cost"].sum()
+        risk_in_scope = risk_df[~risk_df.get("Exception_Flag", pd.Series(dtype=bool)).fillna(False)]
+        cost_total = risk_in_scope["total_cost"].sum()
         c1, c2, c3 = st.columns(3)
         c1.metric("Est. Cost (Past EoL)", f"${cost_critical:,.0f}")
         c2.metric("Est. Cost (All At-Risk)", f"${cost_at_risk:,.0f}")
-        c3.metric("Total Est. Refresh Cost", f"${cost_total:,.0f}")
+        c3.metric("Total Est. Refresh Cost (In Scope)", f"${cost_total:,.0f}")
     else:
         st.info("Cost data from ModelData (Material + Labor + Device Cost). Run pipeline from Excel to include costs.")
 
@@ -628,8 +826,25 @@ with tab_cost:
     tier_order = ["Past EoL (Critical)", "Approaching (< 90 days)", "Approaching (≤ 1 yr)", "Unknown Lifecycle", "Exception (Decom)", "Within Lifecycle"]
     risk_counts["sort_key"] = risk_counts["risk_tier"].map({t: i for i, t in enumerate(tier_order)}).fillna(99)
     risk_counts = risk_counts.sort_values("sort_key").drop(columns=["sort_key"], errors="ignore")
-    fig_risk = px.bar(risk_counts, x="risk_tier", y="count", title="Device Count by Risk Tier", color="count", color_continuous_scale="Reds")
+    fig_risk = _style_chart(px.bar(risk_counts, x="risk_tier", y="count", title="Device Count by Risk Tier", color="count", color_continuous_scale="Reds"))
     st.plotly_chart(fig_risk, use_container_width=True)
+
+    # --- Lifecycle vs Cost & Support (Q5: correlation) ---
+    st.markdown("#### Lifecycle, Support, and Cost Correlation")
+    st.caption("How lifecycle tier correlates with support risk, security risk, and replacement cost. Past EoL = no vendor support, highest security risk.")
+    tier_corr = risk_df.groupby("risk_tier").agg(
+        device_count=("hostname", "count"),
+        total_cost=("total_cost", "sum"),
+    ).reset_index()
+    tier_corr["avg_cost"] = np.where(tier_corr["device_count"] > 0, tier_corr["total_cost"] / tier_corr["device_count"], 0)
+    tier_order_corr = ["Past EoL (Critical)", "Approaching (< 90 days)", "Approaching (≤ 1 yr)", "Unknown Lifecycle", "Exception (Decom)", "Within Lifecycle"]
+    tier_corr["sort_key"] = tier_corr["risk_tier"].map({t: i for i, t in enumerate(tier_order_corr)}).fillna(99)
+    tier_corr = tier_corr.sort_values("sort_key")
+    disp_corr = tier_corr[["risk_tier", "device_count", "total_cost", "avg_cost"]].copy()
+    disp_corr.columns = ["Risk Tier", "Devices", "Total Est. Cost ($)", "Avg Cost/Device ($)"]
+    disp_corr["Total Est. Cost ($)"] = disp_corr["Total Est. Cost ($)"].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "—")
+    disp_corr["Avg Cost/Device ($)"] = disp_corr["Avg Cost/Device ($)"].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "—")
+    st.dataframe(disp_corr, use_container_width=True, height=220)
 
     st.divider()
 
@@ -645,24 +860,54 @@ with tab_cost:
     with col_a:
         if not risk_by_state.empty:
             st.plotly_chart(
-                px.bar(risk_by_state.head(15), x="State", y="device_count", title="At-Risk Devices by State", color="device_count", color_continuous_scale="Oranges"),
+                _style_chart(px.bar(risk_by_state.head(15), x="State", y="device_count", title="At-Risk Devices by State", color="device_count", color_continuous_scale="Oranges")),
                 use_container_width=True,
             )
     with col_b:
         if has_costs and not risk_by_state.empty and risk_by_state["total_cost"].sum() > 0:
             st.plotly_chart(
-                px.bar(risk_by_state.head(15), x="State", y="total_cost", title="Est. Replacement Cost by State", color="total_cost", color_continuous_scale="Blues"),
+                _style_chart(px.bar(risk_by_state.head(15), x="State", y="total_cost", title="Est. Replacement Cost by State", color="total_cost", color_continuous_scale="Blues")),
                 use_container_width=True,
             )
         else:
             critical_by_state = risk_df[risk_df["risk_tier"] == "Past EoL (Critical)"].groupby("State").size().reset_index(name="critical_count")
             critical_by_state = critical_by_state.sort_values("critical_count", ascending=False).head(15)
             if not critical_by_state.empty:
-                st.plotly_chart(px.bar(critical_by_state, x="State", y="critical_count", title="Critical (Past EoL) by State", color="critical_count", color_continuous_scale="Reds"), use_container_width=True)
+                st.plotly_chart(_style_chart(px.bar(critical_by_state, x="State", y="critical_count", title="Critical (Past EoL) by State", color="critical_count", color_continuous_scale="Reds")), use_container_width=True)
             else:
                 st.info("No Past EoL devices in filtered view.")
 
     st.divider()
+
+    # --- Highest Risk by Geography (Q1: quantify & rank) ---
+    st.markdown("#### Highest Risk by Geography")
+    st.caption("States and counties ranked by critical (Past EoL) device count — answers *where is highest risk?*")
+    at_risk_in_scope = at_risk[~at_risk.get("Exception_Flag", pd.Series(dtype=bool)).fillna(False)]
+    if "State" in at_risk_in_scope.columns and not at_risk_in_scope.empty:
+        crit = at_risk_in_scope[at_risk_in_scope["risk_tier"] == "Past EoL (Critical)"] if "risk_tier" in at_risk_in_scope.columns else pd.DataFrame()
+        if not crit.empty:
+            risk_by_state = crit.groupby("State").size().reset_index(name="critical_count")
+            risk_by_state = risk_by_state.merge(
+                at_risk_in_scope.groupby("State").size().reset_index(name="at_risk_count"),
+                on="State", how="outer"
+            ).fillna(0).astype({"critical_count": int, "at_risk_count": int})
+        else:
+            risk_by_state = at_risk_in_scope.groupby("State").size().reset_index(name="at_risk_count")
+            risk_by_state["critical_count"] = 0
+        risk_by_state = risk_by_state.sort_values("critical_count", ascending=False).head(15)
+        risk_by_state["risk_rank"] = range(1, len(risk_by_state) + 1)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.dataframe(risk_by_state[["risk_rank", "State", "critical_count", "at_risk_count"]], use_container_width=True, height=320)
+        with col2:
+            if not risk_by_state.empty and risk_by_state["critical_count"].sum() > 0:
+                st.plotly_chart(_style_chart(px.bar(risk_by_state.head(10), x="State", y="critical_count", title="Past EoL by State (Top 10)", color="critical_count", color_continuous_scale="Reds")), use_container_width=True)
+    if "county" in at_risk_in_scope.columns and (at_risk_in_scope["county"] != "Unknown").any():
+        crit = at_risk_in_scope[at_risk_in_scope["risk_tier"] == "Past EoL (Critical)"] if "risk_tier" in at_risk_in_scope.columns else at_risk_in_scope
+        by_county = crit[crit["county"] != "Unknown"].groupby("county").size().reset_index(name="critical_count").sort_values("critical_count", ascending=False).head(15)
+        if not by_county.empty:
+            st.markdown("**Top counties by critical count**")
+            st.dataframe(by_county.assign(rank=range(1, len(by_county) + 1))[["rank", "county", "critical_count"]], use_container_width=True, height=280)
 
     # --- Risk by Affiliate (when available) ---
     if "affiliate" in at_risk.columns and at_risk["affiliate"].notna().any() and (at_risk["affiliate"] != "Unknown").any():
@@ -672,7 +917,7 @@ with tab_cost:
             total_cost=("total_cost", "sum"),
         ).reset_index().sort_values("device_count", ascending=False).head(15)
         if not risk_by_aff.empty:
-            st.plotly_chart(px.bar(risk_by_aff, x="affiliate", y="device_count", title="At-Risk Devices by Affiliate"), use_container_width=True)
+            st.plotly_chart(_style_chart(px.bar(risk_by_aff, x="affiliate", y="device_count", title="At-Risk Devices by Affiliate")), use_container_width=True)
 
     st.divider()
 
@@ -690,12 +935,12 @@ with tab_cost:
         col1, col2 = st.columns(2)
         with col1:
             st.plotly_chart(
-                px.bar(cost_by_type, x="device_type", y="total_cost", title="Total Est. Cost by Device Type", color="total_cost", color_continuous_scale="Greens", labels={"total_cost": "Est. Cost ($)"}),
+                _style_chart(px.bar(cost_by_type, x="device_type", y="total_cost", title="Total Est. Cost by Device Type", color="total_cost", color_continuous_scale="Greens", labels={"total_cost": "Est. Cost ($)"})),
                 use_container_width=True,
             )
         with col2:
             st.plotly_chart(
-                px.bar(cost_by_type, x="device_type", y="avg_cost_per_device", title="Avg Cost per Device by Type", color="avg_cost_per_device", color_continuous_scale="Blues", labels={"avg_cost_per_device": "Avg Cost ($)"}),
+                _style_chart(px.bar(cost_by_type, x="device_type", y="avg_cost_per_device", title="Avg Cost per Device by Type", color="avg_cost_per_device", color_continuous_scale="Blues", labels={"avg_cost_per_device": "Avg Cost ($)"})),
                 use_container_width=True,
             )
         # Table with cost breakdown by device type
@@ -711,7 +956,7 @@ with tab_cost:
         st.dataframe(cost_by_type_display, use_container_width=True, height=300)
     else:
         # Show device count by type even without cost data
-        st.plotly_chart(px.bar(cost_by_type, x="device_type", y="device_count", title="Device Count by Type"), use_container_width=True)
+        st.plotly_chart(_style_chart(px.bar(cost_by_type, x="device_type", y="device_count", title="Device Count by Type")), use_container_width=True)
         st.info("Cost breakdown by device type requires ModelData. Run pipeline from Excel to include costs.")
 
     st.divider()
@@ -761,7 +1006,7 @@ with tab_cost:
         cost_by_repl = cost_by_repl.sort_values("total_cost", ascending=False)
         if not cost_by_repl.empty:
             if has_costs and cost_by_repl["total_cost"].sum() > 0:
-                st.plotly_chart(px.bar(cost_by_repl.head(20), x="Repl Device", y="total_cost", title="Total Cost by Replacement Model", color="total_cost", color_continuous_scale="Purples"), use_container_width=True)
+                st.plotly_chart(_style_chart(px.bar(cost_by_repl.head(20), x="Repl Device", y="total_cost", title="Total Cost by Replacement Model", color="total_cost", color_continuous_scale="Purples")), use_container_width=True)
             repl_disp = cost_by_repl[["Repl Device", "device_count", "total_cost", "source_models"]].copy()
             if "Material Cost" in cost_by_repl.columns:
                 repl_disp["Material Cost"] = cost_by_repl["Material Cost"]
@@ -793,7 +1038,7 @@ with tab_cost:
 
     if not cost_by_site.empty:
         if has_costs and cost_by_site["total_cost"].sum() > 0:
-            st.plotly_chart(px.bar(cost_by_site.head(25), x="site_code", y="total_cost", title="Est. Replacement Cost by Site", color="total_cost", color_continuous_scale="Teal"), use_container_width=True)
+            st.plotly_chart(_style_chart(px.bar(cost_by_site.head(25), x="site_code", y="total_cost", title="Est. Replacement Cost by Site", color="total_cost", color_continuous_scale="Teal")), use_container_width=True)
         site_disp = cost_by_site.copy()
         for c in site_disp.columns:
             if "cost" in str(c).lower():
@@ -831,7 +1076,7 @@ with tab_cost:
         if has_costs and at_risk_agg["total_cost"].sum() > 0:
             fig_pt = px.scatter(at_risk_agg, x="device_count", y="total_cost", size="total_cost", hover_name="model", color="price_turnover_score", color_continuous_scale="Reds", title="Price vs Turnover — Top-right = Highest Both (prioritize)")
             fig_pt.update_layout(xaxis_title="Turnover (device count)", yaxis_title="Total Cost ($)")
-            st.plotly_chart(fig_pt, use_container_width=True)
+            st.plotly_chart(_style_chart(fig_pt), use_container_width=True)
     # Same for sites
     pt_site = at_risk.groupby("site_code").agg(device_count=("hostname", "count"), total_cost=("total_cost", "sum")).reset_index()
     pt_site = pt_site[pt_site["site_code"].notna() & (pt_site["site_code"] != "")]
@@ -852,11 +1097,22 @@ with tab_cost:
 
     st.divider()
 
+    # --- Where to Prioritize (Q6: ranked investment) ---
+    st.markdown("#### Where to Prioritize Refresh Investment")
+    st.caption("Ranked by priority score (risk_score × log(1+cost)). Past EoL + high cost = invest first. Exceptions (Decom) excluded.")
+    if "State" in at_risk.columns and "priority_score" in at_risk.columns and not at_risk.empty:
+        invest_by_state = at_risk.groupby("State").agg(
+            device_count=("hostname", "count"),
+            total_priority=("priority_score", "sum"),
+        ).reset_index().sort_values("total_priority", ascending=False).head(10)
+        invest_by_state["rank"] = range(1, len(invest_by_state) + 1)
+        st.markdown("**Top states by investment priority**")
+        st.dataframe(invest_by_state[["rank", "State", "device_count", "total_priority"]].rename(columns={"total_priority": "priority_score_sum"}), use_container_width=True, height=280)
+
     # --- Top Priority Table (risk × cost) ---
     st.markdown("#### Top 25 Priority Devices (Risk Score × Cost)")
-    st.caption("Sorted by priority score (risk_score × log(1+cost)). Past EoL + high cost = top priority.")
     priority_df = at_risk.nlargest(25, "priority_score")
-    disp_cols = ["State", "affiliate", "site_code", "hostname", "device_type", "model", "Repl Device", "risk_tier", "risk_score", "Days_to_EoL"]
+    disp_cols = ["State", "affiliate", "site_code", "hostname", "device_type", "model", "Repl Device", "risk_tier", "risk_score", "Days_to_EoS", "Days_to_EoL"]
     if has_costs:
         disp_cols.extend(["total_cost", "Material Cost", "Labor Cost", "Device Cost"])
     disp_cols = [c for c in disp_cols if c in priority_df.columns]
@@ -868,15 +1124,25 @@ with tab_cost:
 # GEO BUNDLING TAB
 # -----------------------------
 with tab_geo:
-    st.subheader("Geo Bundling (Sites within a Radius)")
+    st.markdown("### Geo Bundling")
+    st.markdown("**Are there sites within a specified radius to lifecycle together?** Yes. The map and table below show sites grouped by distance — clusters indicate sites that can be bundled for joint refresh planning.")
+    st.caption("Sites within your selected radius (1–50 mi) are clustered using haversine distance. Each site uses a single coordinate (mean if duplicates). Adjust the Bundling Radius in the sidebar to see different groupings.")
 
-    if filtered["latitude"].isna().all() or filtered["longitude"].isna().all():
+    if filtered.empty:
+        st.warning("No devices match the current filters. Try adjusting State, Affiliate, or other filters in the sidebar.")
+    elif "latitude" not in filtered.columns or "longitude" not in filtered.columns:
         st.warning(
-            "Latitude/Longitude are missing. Enable geo enrichment and ensure the Excel exists at the given path "
+            "Latitude/Longitude columns are missing. Enable geo enrichment and ensure the Excel exists at the given path "
             "so we can pull SOLID-Loc coordinates."
         )
+    elif filtered["latitude"].isna().all() and filtered["longitude"].isna().all():
+        st.warning(
+            "Latitude/Longitude are missing. Enable geo enrichment and ensure the Excel exists at the given path "
+            "(e.g. `data/raw/UAInnovateDataset-SoCo.xlsx` or full path like `C:\\Users\\...\\UAInnovateDataset-SoCo.xlsx`). "
+            "The CSV pipeline also embeds geo when run with a valid Excel—try **Run Pipeline from Excel** then **Reload Data**."
+        )
     else:
-        st.caption("This view aggregates devices to sites and finds clusters of nearby sites within the selected radius.")
+        st.caption("This view aggregates devices to unique sites (one lat/lon per site) and clusters nearby sites within the selected radius. **Change the Bundling Radius in the sidebar** (1, 5, 10, 25, or 50 mi) to see different groupings. Use max_dist_mi to verify cluster tightness.")
 
         # Build a site-level view from filtered devices
         site_view = (
@@ -907,30 +1173,31 @@ with tab_geo:
 
         # Map of sites
         st.markdown("#### Site Map")
-        st.plotly_chart(
-            px.scatter_mapbox(
-                site_view,
-                lat="latitude",
-                lon="longitude",
-                size="device_count",
-                hover_name="site_code",
-                hover_data={
-                    "State": True,
-                    "affiliate": True,
-                    "county": True,
-                    "device_count": True,
-                    "expired_count": True,
-                    "approaching_count": True,
-                    "unknown_count": True,
-                    "exception_count": True,
-                },
-                zoom=4,
-            ).update_layout(
-                mapbox_style="open-street-map",
-                margin={"r": 0, "t": 0, "l": 0, "b": 0},
-            ),
-            use_container_width=True
+        map_fig = px.scatter_mapbox(
+            site_view,
+            lat="latitude",
+            lon="longitude",
+            size="device_count",
+            hover_name="site_code",
+            hover_data={
+                "State": True,
+                "affiliate": True,
+                "county": True,
+                "device_count": True,
+                "expired_count": True,
+                "approaching_count": True,
+                "unknown_count": True,
+                "exception_count": True,
+            },
+            zoom=4,
         )
+        map_fig.update_layout(
+            mapbox_style="carto-positron",
+            margin={"r": 10, "t": 10, "l": 10, "b": 10},
+            height=500,
+            font=CHART_THEME["font"],
+        )
+        st.plotly_chart(map_fig, use_container_width=True)
 
         st.divider()
 
@@ -945,7 +1212,7 @@ with tab_geo:
             radius_mi=float(radius_mi),
         )
 
-        st.markdown("#### Bundle Candidate Clusters (largest first)")
+        st.markdown(f"#### Bundle Candidate Clusters (within {radius_mi} mi radius — largest first)")
         st.dataframe(cluster_summary.head(50), use_container_width=True, height=520)
 
         st.download_button(
@@ -959,7 +1226,9 @@ with tab_geo:
 # EXCEPTIONS TAB
 # -----------------------------
 with tab_ex:
-    st.subheader("Exceptions (Decom / Omitted Devices)")
+    st.markdown("### Exceptions")
+    st.markdown("**How are exceptions captured and incorporated?** Exceptions (Decom sites) are flagged and **excluded from refresh/investment totals**. In-scope KPIs and prioritization do not include these devices.")
+    st.caption("Decommissioned or omitted devices — review sites and devices outside project scope. These are not counted in Past EoL, At-Risk, or Cost Summary for planning.")
 
     if exceptions is None or exceptions.empty:
         st.info("No exceptions file loaded or exceptions dataset is empty.")
@@ -1002,7 +1271,21 @@ with tab_ex:
 # DATA PIPELINE TAB
 # -----------------------------
 with tab_docs:
-    st.subheader("Data Loading Process")
+    st.markdown("### Data Pipeline")
+    st.caption("How data flows from Excel into the dashboard.")
+
+    st.markdown("#### Key Questions This Dashboard Answers")
+    st.markdown("""
+| Question | Where to Find |
+|----------|---------------|
+| **1. What equipment is approaching EoS/EoL — where is highest risk?** | Overview KPIs (Past/Approaching EoS & EoL); Cost & Risk → Highest Risk by Geography; Lifecycle tab (EoS & EoL views) |
+| **2. Sites within a radius to lifecycle together?** | Geo Bundling tab — map + clusters within 1/5/10 mi |
+| **3. Devices past lifecycle but still in production?** | Lifecycle tab → Past EoL |
+| **4. How are exceptions incorporated?** | Exceptions tab; Overview shows In Scope vs Exceptions; totals exclude Decom |
+| **5. Lifecycle vs support, security, cost?** | Cost & Risk → Lifecycle, Support, and Cost Correlation table |
+| **6. Where to prioritize refresh/investment?** | Cost & Risk → Where to Prioritize (ranked states); Top 25 Priority Devices |
+""")
+
     st.markdown("""
     **Process for loading data into the visualization:**
 
@@ -1018,4 +1301,4 @@ with tab_docs:
     """)
     st.markdown("**Exception handling:** Devices at decommissioned sites (Decom) are flagged and omitted from project scope.")
 
-st.caption("Tip: If geo doesn’t show, enable Geo Enrichment and ensure the Excel file exists at the specified path.")
+# st.caption("Tip: If geo doesn’t show, enable Geo Enrichment and ensure the Excel file exists at the specified path.")

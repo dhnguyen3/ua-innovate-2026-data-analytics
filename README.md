@@ -13,8 +13,8 @@ py -m streamlit run app.py
 
 ### Option A: Load from Excel (recommended)
 
-1. Place your Excel file (`UAInnovateDataset-SoCo.xlsx` or `UAInnovateDataset-SoCo - Copy (1).xlsx`) in a known location.
-2. In the dashboard sidebar, enter the full path in **Excel Path** (e.g. `C:\Users\...\Downloads\UAInnovateDataset-SoCo - Copy (1).xlsx`).
+1. Place your Excel file in `data/raw/` (e.g. `data/raw/UAInnovateDataset-SoCo.xlsx`) or any known location.
+2. In the dashboard sidebar, set **Excel Path** to the file (e.g. `data/raw/UAInnovateDataset-SoCo.xlsx` or full path like `C:\Users\...\UAInnovateDataset-SoCo.xlsx`). If the path is incomplete (e.g. missing `.xlsx`), the app will try appending it automatically.
 3. Click **Run Pipeline from Excel** to process raw data into CSVs.
 4. Click **Reload Data**.
 

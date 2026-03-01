@@ -64,8 +64,8 @@ def run_pipeline(excel_path: str, output_dir: str) -> None:
 
     if devices.empty:
         os.makedirs(output_dir, exist_ok=True)
-        empty_df = pd.DataFrame(columns=['Host Name', 'Device Model', 'EoS', 'EoL', 'State', 'Site Code Extracted', 'Exception_Flag', 'Exception_Reason', 'EoL_Date', 'Days_to_EoL'])
-        for name in ["core_device_table.csv", "devices_approaching_eol.csv", "devices_past_eol.csv", "devices_exceptions.csv", "devices_unknown_lifecycle.csv"]:
+        empty_df = pd.DataFrame(columns=['Host Name', 'Device Model', 'EoS', 'EoL', 'State', 'Site Code Extracted', 'Exception_Flag', 'Exception_Reason', 'EoL_Date', 'Days_to_EoL', 'EoS_Date', 'Days_to_EoS'])
+        for name in ["core_device_table.csv", "devices_approaching_eol.csv", "devices_past_eol.csv", "devices_approaching_eos.csv", "devices_past_eos.csv", "devices_exceptions.csv", "devices_unknown_lifecycle.csv"]:
             empty_df.to_csv(os.path.join(output_dir, name), index=False)
         print(f"No devices. Empty CSVs written to {output_dir}")
         return
@@ -110,9 +110,13 @@ def run_pipeline(excel_path: str, output_dir: str) -> None:
     today = pd.Timestamp.today()
     devices['EoL_Date'] = pd.to_datetime(devices['EoL'], errors='coerce')
     devices['Days_to_EoL'] = (devices['EoL_Date'] - today).dt.days
+    devices['EoS_Date'] = pd.to_datetime(devices['EoS'], errors='coerce')
+    devices['Days_to_EoS'] = (devices['EoS_Date'] - today).dt.days
 
     approaching_eol = devices[(devices['Days_to_EoL'].notna()) & (devices['Days_to_EoL'] >= 0) & (devices['Days_to_EoL'] <= 365)]
     past_eol = devices[(devices['Days_to_EoL'].notna()) & (devices['Days_to_EoL'] < 0)]
+    approaching_eos = devices[(devices['Days_to_EoS'].notna()) & (devices['Days_to_EoS'] >= 0) & (devices['Days_to_EoS'] <= 365)]
+    past_eos = devices[(devices['Days_to_EoS'].notna()) & (devices['Days_to_EoS'] < 0)]
     exceptions_df = devices[devices['Exception_Flag'] == True]
     unknown_lifecycle = devices[devices['EoL'].isna()]
 
@@ -120,6 +124,8 @@ def run_pipeline(excel_path: str, output_dir: str) -> None:
     devices.to_csv(os.path.join(output_dir, "core_device_table.csv"), index=False)
     approaching_eol.to_csv(os.path.join(output_dir, "devices_approaching_eol.csv"), index=False)
     past_eol.to_csv(os.path.join(output_dir, "devices_past_eol.csv"), index=False)
+    approaching_eos.to_csv(os.path.join(output_dir, "devices_approaching_eos.csv"), index=False)
+    past_eos.to_csv(os.path.join(output_dir, "devices_past_eos.csv"), index=False)
     exceptions_df.to_csv(os.path.join(output_dir, "devices_exceptions.csv"), index=False)
     unknown_lifecycle.to_csv(os.path.join(output_dir, "devices_unknown_lifecycle.csv"), index=False)
 
