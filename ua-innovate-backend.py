@@ -62,6 +62,11 @@ def run_pipeline(excel_path: str, output_dir: str) -> None:
             to_concat.append(prime_wlc.rename(columns={'deviceName': 'Host Name'}))
         devices = pd.concat(to_concat, ignore_index=True, sort=False)
 
+    # Exclude Application Switch — NA (not applicable) for lifecycle tracking
+    type_col = "Device Type Standard" if "Device Type Standard" in devices.columns else "Device Type"
+    if type_col in devices.columns:
+        devices = devices[devices[type_col].astype(str).str.strip().str.lower() != "application switch"]
+
     if devices.empty:
         os.makedirs(output_dir, exist_ok=True)
         empty_df = pd.DataFrame(columns=['Host Name', 'Device Model', 'EoS', 'EoL', 'State', 'Site Code Extracted', 'Exception_Flag', 'Exception_Reason', 'EoL_Date', 'Days_to_EoL', 'EoS_Date', 'Days_to_EoS'])
@@ -107,17 +112,39 @@ def run_pipeline(excel_path: str, output_dir: str) -> None:
         mask = devices['Site Code Extracted'].astype(str).str.strip().isin(decom_sites)
         devices.loc[mask, ['Exception_Flag', 'Exception_Reason']] = [True, 'Decommissioned site']
 
+    # Exclusions: blanks in date category, decommission sites, not reachable
     today = pd.Timestamp.today()
     devices['EoL_Date'] = pd.to_datetime(devices['EoL'], errors='coerce')
     devices['Days_to_EoL'] = (devices['EoL_Date'] - today).dt.days
     devices['EoS_Date'] = pd.to_datetime(devices['EoS'], errors='coerce')
     devices['Days_to_EoS'] = (devices['EoS_Date'] - today).dt.days
 
+    # Capture exceptions (Decom) before filtering — for Exceptions tab
+    exceptions_df = devices[devices['Exception_Flag'] == True].copy()
+
+    # Exclude from core: (1) blanks in EoL/EoS, (2) decommission sites, (3) not reachable
+    has_eol = devices['EoL'].notna() & (devices['EoL'].astype(str).str.strip() != '')
+    has_eos = devices['EoS'].notna() & (devices['EoS'].astype(str).str.strip() != '')
+    has_dates = has_eol | has_eos  # keep if at least one date present
+    not_decom = ~devices['Exception_Flag']
+    # Reachable: exclude when reachabilityStatus=="unreachable", IsReachable==0, or reachability!="reachable"
+    reachable_mask = pd.Series(True, index=devices.index)
+    if 'reachabilityStatus' in devices.columns:
+        reachable_mask &= devices['reachabilityStatus'].astype(str).str.strip().str.lower() != 'unreachable'
+    if 'IsReachable' in devices.columns:
+        is_reach = pd.to_numeric(devices['IsReachable'], errors='coerce')
+        reachable_mask &= (is_reach != 0) | is_reach.isna()  # exclude only when explicitly 0
+    if 'reachability' in devices.columns:
+        r = devices['reachability'].astype(str).str.strip().str.lower()
+        has_val = r.notna() & (r != '') & (r != 'nan')
+        reachable_mask &= ~(has_val & (r != 'reachable'))  # exclude when has value and not "reachable"
+    in_scope = has_dates & not_decom & reachable_mask
+    devices = devices[in_scope].copy()
+
     approaching_eol = devices[(devices['Days_to_EoL'].notna()) & (devices['Days_to_EoL'] >= 0) & (devices['Days_to_EoL'] <= 365)]
     past_eol = devices[(devices['Days_to_EoL'].notna()) & (devices['Days_to_EoL'] < 0)]
     approaching_eos = devices[(devices['Days_to_EoS'].notna()) & (devices['Days_to_EoS'] >= 0) & (devices['Days_to_EoS'] <= 365)]
     past_eos = devices[(devices['Days_to_EoS'].notna()) & (devices['Days_to_EoS'] < 0)]
-    exceptions_df = devices[devices['Exception_Flag'] == True]
     unknown_lifecycle = devices[devices['EoL'].isna()]
 
     os.makedirs(output_dir, exist_ok=True)
